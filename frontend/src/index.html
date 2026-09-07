@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botanist AI | Plant Care Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-[#f0f4f0] text-gray-800">
+    <div id="root"></div>
+
+    <!--
+        Single-page frontend. React is loaded from a CDN, so there is no
+        build step. The only backend call is GET /api/research/{plant},
+        served by the FastAPI app on the same host.
+    -->
+    <script>
+        const R = React;
+        const { useState } = R;
+
+        // The LLM occasionally returns numbers or objects where strings are
+        // expected; coerce to text so React never chokes on a non-renderable value.
+        const asText = (v) => Array.isArray(v) ? v.map(asText).join(', ') : (v == null ? '' : String(v));
+
+        // --- Icons ---
+        const SearchIcon = ({className}) => R.createElement('svg', {className: className + ' w-5 h-5', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('circle', {cx: '11', cy: '11', r: '8'}), R.createElement('path', {d: 'm21 21-4.3-4.3'}));
+        const DropletsIcon = ({className}) => R.createElement('svg', {className: className + ' w-6 h-6', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('path', {d: 'M12 22a7 7 0 0 0 7-7c0-2-1-3.9-2.3-5.7C14.8 8.1 13 5 13 2c0 0-1.8 3.1-3.7 7.3C8 11.1 9 13 9 15a7 7 0 0 0 7 7z'}));
+        const SunIcon = ({className}) => R.createElement('svg', {className: className + ' w-6 h-6', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('circle', {cx: '12', cy: '12', r: '4'}), R.createElement('path', {d: 'M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41'}));
+        const ThermometerIcon = ({className}) => R.createElement('svg', {className: className + ' w-6 h-6', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('path', {d: 'M14 14.76V5a2 2 0 1 0-4 0v10.76a4 4 0 1 0 4 0z'}));
+        const SproutIcon = ({className}) => R.createElement('svg', {className: className + ' w-6 h-6', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('path', {d: 'M7 20h10'}), R.createElement('path', {d: 'M10 20c5.5-2.5.8-6.4 3-10'}), R.createElement('path', {d: 'M9 14c2.5-1 1.5-5 3-8'}), R.createElement('path', {d: 'M14.5 12c1.5-.5 2.5-3 4-3'}));
+        const AlertCircleIcon = ({className}) => R.createElement('svg', {className: className + ' w-5 h-5', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('circle', {cx: '12', cy: '12', r: '10'}), R.createElement('line', {x1: '12', y1: '8', x2: '12', y2: '12'}), R.createElement('line', {x1: '12', y1: '16', x2: '12.01', y2: '16'}));
+        const Loader2Icon = ({className}) => R.createElement('svg', {className: className + ' w-5 h-5', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('path', {d: 'M12 22a10 10 0 1 1 7.5-3.5'}));
+        const LeafIcon = ({className}) => R.createElement('svg', {className: className + ' w-10 h-10', viewBox: '0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round'}, R.createElement('path', {d: 'M11 2a9 9 0 0 0-7.5 3.5A5.5 5.5 0 0 0 3 13c0 5 5 9 9 9a9 9 0 0 0 9-9c0-4.5-3-8-7.5-8.7C13 3 12.5 2 11 2z'}));
+
+        // --- Components ---
+        // One labelled card in the care grid (watering, light, climate, nutrition).
+        function CareCard({icon, title, content}) {
+            return R.createElement('div', {className: 'bg-white p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100'},
+                R.createElement('div', {className: 'flex items-center gap-3 mb-3'},
+                    icon,
+                    R.createElement('h3', {className: 'font-bold text-gray-500 uppercase tracking-widest text-xs'}, title)
+                ),
+                R.createElement('p', {className: 'text-gray-700 text-sm leading-relaxed'}, asText(content) || 'No data available')
+            );
+        }
+
+        // Top-level component: search box, loading/error state, results layout.
+        function App() {
+            const [plantName, setPlantName] = useState('');
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const handleSearch = async (e) => {
+                e.preventDefault();
+                if (!plantName.trim()) return;
+
+                setLoading(true);
+                setError('');
+                setData(null);
+
+                try {
+                    const response = await fetch(`/api/research/${encodeURIComponent(plantName)}`);
+                    if (!response.ok) {
+                        // The error body is JSON when it comes from FastAPI,
+                        // but could be anything else (proxy error page, ...).
+                        let detail = `Request failed (${response.status})`;
+                        try { detail = (await response.json()).detail || detail; } catch (_) { /* not JSON */ }
+                        throw new Error(detail);
+                    }
+                    const result = await response.json();
+                    setData(result);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return R.createElement('div', {className: 'min-h-screen pb-20'},
+                // Header
+                R.createElement('header', {className: 'max-w-4xl mx-auto text-center py-16 px-4'},
+                    R.createElement('div', {className: 'flex justify-center items-center gap-4 mb-4'},
+                        R.createElement(LeafIcon, {className: 'text-green-600'}),
+                        R.createElement('h1', {className: 'text-5xl font-extrabold text-gray-900 tracking-tight'}, 'Botanist AI')
+                    ),
+                    R.createElement('p', {className: 'text-gray-600 text-xl font-light'}, 'Intelligent, weather-aware plant care guides.')
+                ),
+
+                // Search
+                R.createElement('div', {className: 'max-w-2xl mx-auto px-4 mb-12'},
+                    R.createElement('form', {onSubmit: handleSearch, className: 'relative group'},
+                        R.createElement('div', {className: 'absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-green-500 transition-colors'},
+                            R.createElement(SearchIcon, {})
+                        ),
+                        R.createElement('input', {
+                            type: 'text',
+                            value: plantName,
+                            onChange: (e) => setPlantName(e.target.value),
+                            placeholder: 'Enter plant name (e.g. Monstera Deliciosa)',
+                            className: 'w-full py-4 pl-14 pr-36 rounded-2xl shadow-xl border-none focus:ring-4 focus:ring-green-200 outline-none text-lg transition-all'
+                        }),
+                        R.createElement('button', {
+                            type: 'submit',
+                            disabled: loading,
+                            className: 'absolute right-2 top-1/2 -translate-y-1/2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl font-semibold transition-all disabled:opacity-50 flex items-center gap-2'
+                        },
+                            loading ? R.createElement(Loader2Icon, {className: 'animate-spin'}) : 'Search'
+                        )
+                    ),
+                    error && R.createElement('div', {className: 'mt-4 p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl text-center flex items-center justify-center gap-2 animate-bounce'},
+                        R.createElement(AlertCircleIcon, {}),
+                        R.createElement('span', null, error)
+                    )
+                ),
+
+                // Results
+                data && R.createElement('main', {className: 'max-w-5xl mx-auto px-4 fade-in'},
+                    // Summary Card
+                    R.createElement('section', {className: 'bg-white rounded-[2rem] p-8 shadow-sm mb-8 border-l-[12px] border-green-500'},
+                        R.createElement('h2', {className: 'text-3xl font-bold text-gray-900 mb-4'}, data.plant_name),
+                        R.createElement('p', {className: 'text-gray-600 text-lg leading-relaxed italic'}, `"${data.seasonal_summary}"`)
+                    ),
+
+                    // Care Grid
+                    R.createElement('div', {className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8'},
+                        R.createElement(CareCard, {icon: R.createElement(DropletsIcon, {className: 'text-blue-500'}), title: 'Watering', content: data.care_details?.watering}),
+                        R.createElement(CareCard, {icon: R.createElement(SunIcon, {className: 'text-amber-500'}), title: 'Light', content: data.care_details?.lighting}),
+                        R.createElement(CareCard, {icon: R.createElement(ThermometerIcon, {className: 'text-orange-500'}), title: 'Climate', content: data.care_details?.humidity_temperature}),
+                        R.createElement(CareCard, {icon: R.createElement(SproutIcon, {className: 'text-green-500'}), title: 'Nutrition', content: data.care_details?.fertilizer})
+                    ),
+
+                    // Bottom Section
+                    R.createElement('div', {className: 'grid grid-cols-1 lg:grid-cols-2 gap-8'},
+                        // Maintenance
+                        R.createElement('section', {className: 'bg-white rounded-[2rem] p-8 shadow-sm'},
+                            R.createElement('div', {className: 'flex items-center gap-3 mb-6'},
+                                R.createElement(SproutIcon, {className: 'text-green-600'}),
+                                R.createElement('h3', {className: 'text-xl font-bold text-gray-800'}, 'Monthly Maintenance')
+                            ),
+                            R.createElement('ul', {className: 'space-y-4'},
+                                (data.care_details?.maintenance_tasks || []).map((task, i) =>
+                                    R.createElement('li', {key: i, className: 'flex items-start gap-3 text-gray-600'},
+                                        R.createElement('div', {className: 'w-2 h-2 mt-2 rounded-full bg-green-400 shrink-0'}),
+                                        R.createElement('span', null, asText(task))
+                                    )
+                                )
+                            )
+                        ),
+                        // Warnings
+                        R.createElement('section', {className: 'bg-red-50 rounded-[2rem] p-8 border border-red-100'},
+                            R.createElement('div', {className: 'flex items-center gap-3 mb-6 text-red-700'},
+                                R.createElement(AlertCircleIcon, {}),
+                                R.createElement('h3', {className: 'text-xl font-bold'}, 'Watch Out For')
+                            ),
+                            R.createElement('ul', {className: 'space-y-4'},
+                                (data.warning_signs || []).map((sign, i) =>
+                                    R.createElement('li', {key: i, className: 'flex items-start gap-3 text-red-800'},
+                                        R.createElement('div', {className: 'w-2 h-2 mt-2 rounded-full bg-red-500 shrink-0'}),
+                                        R.createElement('span', null, asText(sign))
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(R.createElement(App));
+    </script>
+</body>
+</html>

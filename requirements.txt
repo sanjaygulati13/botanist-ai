@@ -1,0 +1,5 @@
+# Backend runtime dependencies (pydantic ships with fastapi).
+fastapi
+httpx
+python-dotenv
+uvicorn
